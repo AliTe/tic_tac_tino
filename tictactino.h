@@ -5,10 +5,19 @@
 
 #define _DEBUG 1
 
+namespace tictactino {
+  void init(int dataPin, int clockPin, int latchPin, int greenPin, int redPin);
+  void play();
+  void show();
+  //void reset();
+  //Status status();
+};
+
+/*
 class Tictactino
 {
   public:
-    enum State { UNDEFINED, STARTING, RUNNING, WIN_GREEN, WIN_RED, EQUAL, DEMO, RESET };
+    
     enum Player { GREEN, RED, BLINK };
     
   private:
@@ -41,5 +50,5 @@ class Tictactino
     void play();
     void show();
 };
-
+*/
 #endif

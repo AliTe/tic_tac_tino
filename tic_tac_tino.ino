@@ -2,20 +2,15 @@
 
 #include "tictactino.h"
 
-Tictactino game;
 
 void setup()
 {
-  #ifdef _DEBUG
-  Serial.begin(9600);
-  #endif
-  pinMode(2, INPUT);
-  pinMode(3, INPUT);
+  tictactino::init(4, 5, 6, 2, 3);
 }
 
 void loop()
 {
-  game.init();  
-  game.play();
-  game.show();
+  //tictactino::reset();
+  tictactino::play();
+  tictactino::show();
 }

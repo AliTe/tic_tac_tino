@@ -1,6 +1,232 @@
 #include "tictactino.h"
 
-const uint16_t Tictactino::_wmasks[8] = { 7, 56, 73, 84, 146, 273, 292, 448 };
+namespace tictactino {
+  enum Status { UNDEFINED, RESET, RUNNING, WIN_GREEN, WIN_RED, EQUAL, DEMO };
+  enum Player { GREEN, RED };
+  enum Input { NONE, MOVE, SET };
+  const uint16_t winmask[8] = { 7, 56, 73, 84, 146, 273, 292, 448 };
+  volatile Status state = UNDEFINED;
+  
+  uint16_t playground[2] = { 0, 0 };
+  int dataP, clockP, latchP, inputP[2];
+  uint32_t playgroundRegister = 0;
+  uint8_t counter = 0;
+  unsigned long inputtime, blinktime;
+  uint16_t cursor, lastinput, blinkmask, winpattern;
+  
+  Player getPlayer();
+  void reset();
+  void refresh();
+  Input getInput(Player p);
+  void move(Player p);
+  void check();
+  void turn(Player p);
+  
+  void init(int dataPin, int clockPin, int latchPin, int greenPin, int redPin)
+  {
+    #ifdef _DEBUG
+    Serial.begin(9600);
+    Serial.println(); Serial.println(); Serial.println(); Serial.println();
+    Serial.println(); Serial.println("===============");
+    Serial.println("TIC TAC TINO"); Serial.println("---------------");
+    Serial.println("Starte Initialisierung"); Serial.println();
+    #endif
+    dataP = dataPin;
+    clockP = clockPin;
+    latchP = latchPin;
+    inputP[GREEN] = greenPin;
+    inputP[RED] = redPin;
+    pinMode(inputP[GREEN], INPUT);
+    pinMode(inputP[RED], INPUT);
+    pinMode(dataP, OUTPUT);
+    pinMode(clockP, OUTPUT);
+    pinMode(latchP, OUTPUT);
+    #ifdef _DEBUG
+    Serial.println("Initialisierung abgeschlossen"); Serial.println("---------------"); Serial.println();
+    #endif
+  }
+  
+  void reset()
+  {
+    #ifdef _DEBUG
+    Serial.println("Bereite Spielfeld vor"); Serial.println("---------------"); Serial.println();
+    #endif
+    state = UNDEFINED;
+    playgroundRegister = 0;
+    counter = 0;
+    blinktime =inputtime = 0;
+    blinkmask = cursor = 1;
+    lastinput = LOW;
+    winpattern = 0;
+    playground[GREEN] = playground[RED] = 0;
+    state = RESET;
+    #ifdef _DEBUG
+    Serial.println("Spielfeld ist bereit fuer neues Spiel"); Serial.println("---------------"); Serial.println();
+    #endif
+  }
+  
+  void play()
+  {
+    reset();
+    #ifdef _DEBUG
+    Serial.println("Beginne neues Spiel:"); Serial.println("---------------"); Serial.println();
+    #endif
+    state = RUNNING;
+    refresh();
+    while (state == RUNNING) {
+      turn(getPlayer());
+    }
+  }
+  
+  Player getPlayer()
+  {
+    if ((counter & 1) == 1) return RED;
+    else return GREEN;
+  }
+  
+  void turn(Player p)
+  {
+    switch (getInput(p)) {
+      case MOVE:
+        move(p);
+        break;
+      case SET:
+        blinkmask = 0;
+        playground[p] |= cursor;
+        check();
+        if (state == RUNNING) {
+          if (p == GREEN) cursor = 1;
+          else cursor = 256;
+          counter++;
+          move(getPlayer());
+        }
+        break;
+    }
+  }
+  
+  Input getInput(Player p)
+  {
+    Input result = NONE;
+    int input = digitalRead(inputP[p]);
+    if (lastinput == LOW) {
+      // new keypress detected
+      if (input == HIGH) {
+        // set inputtime - to check if key was pressed long or short
+        inputtime = millis() + 1200;
+        lastinput = HIGH;
+      }
+    }
+    else {
+      // key was pressed before
+      if (input == LOW && inputtime >= millis()) {
+        // keypress was short -> move corsor
+        inputtime = 0;
+        lastinput = LOW;
+        result = MOVE;
+      }
+      else if (input == LOW && inputtime < millis()) {
+        // keypress was long -> set
+        inputtime = 0;
+        lastinput = LOW;
+        result = SET;
+      }
+    }
+    delay(50); // entprellen
+    return result;
+  }
+  
+  void move(Player p)
+  {
+    uint16_t mask = (playground[GREEN] | playground[RED]);
+    if (p == GREEN) {
+      do {
+        cursor = cursor << 1;
+        if (cursor > 256) cursor = 1;
+      } while ((cursor & mask) > 0);
+    }
+    else {
+      do {
+        cursor = cursor >> 1;
+        if (cursor <= 0) cursor = 256;
+      } while ((cursor & mask) > 0);
+    }
+    blinkmask = cursor;
+    refresh();
+  }
+  
+  void check()
+  {
+    Serial.println(cursor); Serial.println(getPlayer());
+    // playground full? Set last remaining field
+    if (counter == 8) {
+      playground[getPlayer()] |= cursor;
+    }
+    for (int i = 0; i < 8; ++i) {
+      if((playground[GREEN] & winmask[i]) == winmask[i]) {
+        winpattern = winmask[i];
+        state = WIN_GREEN;
+      }
+      else if ((playground[RED] & winmask[i]) == winmask[i]) {
+        winpattern = winmask[i];
+        state = WIN_RED;
+      }
+    }
+    if (counter >= 8 && winpattern == 0) state = EQUAL;
+  }
+  
+  void refresh()
+  {
+    #ifdef _DEBUG
+    Serial.print("Spielzug: "); Serial.print(counter); Serial.print(" - ");
+    if (getPlayer() == GREEN) Serial.println("GRUEN");
+    else Serial.println("ROT");
+    Serial.println("----------");
+    for  (int i = 0; i < 9 ; i++) {
+      if (i % 3 == 0) {
+        Serial.println();
+        Serial.print("   ");
+      }
+      if (bitRead(blinkmask, i)) Serial.print("*");
+      else if (bitRead(playground[GREEN], i)) Serial.print("G");
+      else if (bitRead(playground[RED], i)) Serial.print("R");
+      else Serial.print(".");
+    }
+    Serial.println(); Serial.println(); Serial.println("----------");
+    #endif
+  }
+  
+  void show()
+  {
+    blinkmask = winpattern;
+    #ifdef _DEBUG
+    if (state == WIN_RED) {
+      Serial.println("Gewinner: ROT");
+    }
+    else if (state == WIN_GREEN) {
+      Serial.println("Gewinner ist: GRUEN");
+    }
+    else Serial.println("Unentschieden !!!");
+    refresh();
+    Serial.println("Beliebigen Taster druecken, um Spiel neu zu starten ...");
+    #endif
+    do {
+      if (lastinput == LOW && (digitalRead(inputP[GREEN]) == HIGH ||
+          digitalRead(inputP[RED]) == HIGH)) lastinput = HIGH;
+      else if (lastinput == HIGH && digitalRead(inputP[GREEN]) == LOW && digitalRead(inputP[RED]) == LOW) {
+        #ifdef _DEBUG
+        Serial.println("Fuehre RESET durch");
+        Serial.println("---------------"); Serial.println();
+        #endif
+        lastinput = LOW;
+        state = RESET;
+      }
+      delay(50);
+    } while (state != RESET);
+  }
+}
+
+/*
+
 const int Tictactino::_inpins[2] = { 2, 3 };
 
 Tictactino::Tictactino() {
@@ -204,12 +430,6 @@ Tictactino::Turn Tictactino::_getInput(Player p) {
       _lastInput = LOW;
       _ret = SET;
     }
-    /*
-    else {
-      // key is still pressed
-      _ret = NONE;
-    }
-    */
   }
   delay(50);
   return _ret;
@@ -233,5 +453,4 @@ void Tictactino::_move(Player p) {
   _field[BLINK] = _cursor;
   _refresh();
 }
-
-//void Tictactino::
+*/
