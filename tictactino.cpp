@@ -131,14 +131,6 @@ namespace tictactino {
   void refresh()
   {
     #ifdef _DEBUG
-    switch (player()) {
-      case GREEN:
-        Serial.println("Gruen (X) am Zug.");
-        break;
-      case RED:
-        Serial.println("Rot (O) am Zug.");
-        break;
-    }
     for (int i = 0; i < 9; ++i) {
       if (i % 3 == 0) {
         Serial.println();
@@ -163,6 +155,17 @@ namespace tictactino {
       if (p == GREEN) cursor = 256;
       else cursor = 1;
       move(p);
+      #ifdef _DEBUG
+      Serial.print("Naechster Zug: ");
+      switch (p) {
+        case GREEN:
+          Serial.println("Gruen");
+          break;
+        case RED:
+          Serial.println("Rot");
+          break;
+      }
+      #endif
     }
     // check if someone is winner
     for (int i = 0; i < 8; ++i) {
@@ -180,18 +183,22 @@ namespace tictactino {
     if (winpattern == 0 && counter >= 8) {
       if (counter == 8) {
         playground[p] |= cursor;
-        blinkmask = cursor = 0;
         set(p);
+        blinkmask = cursor = 0;
         return;
       }
-      else status = EQUAL; // ???
+      else status = EQUAL;
     }
-   //refresh();
+    refresh();
   }
   
   
   void show()
   {
+    #ifdef _DEBUG
+    Serial.println(); Serial.println("-----------"); Serial.println("Spiel zu Ende");
+    Serial.println("-----------"); Serial.println();
+    #endif
     cursor = 0;
     blinkmask = winpattern;
     refresh();
