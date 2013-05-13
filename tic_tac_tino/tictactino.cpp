@@ -8,9 +8,10 @@ namespace tictactino {
   int inputPins[2], dPin, cPin, lPin, lastinput;
   uint8_t counter = 0;
   uint16_t playground[2], blinkmask, cursor, winpattern;
-  uint32_t _register;
+  uint32_t reg;
   unsigned long inputtimer, blinktimer;
   volatile Status status = UNDEF;
+  boolean blinktoggle;
   void reset();
   void refresh();
   void turn(Player p);
@@ -23,6 +24,10 @@ namespace tictactino {
   {
     inputPins[GREEN] = greenPin; inputPins[RED] = redPin;
     dPin = dataPin; cPin = clockPin; lPin = latchPin;
+    pinMode(lPin, OUTPUT);
+    pinMode(dPin, OUTPUT);  
+    pinMode(cPin, OUTPUT);
+
     #ifdef _DEBUG
     Serial.begin(9600);
     Serial.println("================"); Serial.println("| TIC TAC TINO |");
@@ -35,10 +40,12 @@ namespace tictactino {
     blinkmask = cursor = 1;
     winpattern = 0;
     lastinput = LOW;
+    blinktoggle = false;
     playground[GREEN] = playground[RED] = 0;
     inputtimer = blinktimer = 0;
     counter = 0;
-    _register = 0;
+    reg = 0;
+    blinktimer = millis() + blinkfreq;
     #ifdef _DEBUG
     Serial.println(); Serial.println("-----------"); Serial.println("Neues Spiel");
     Serial.println("-----------"); Serial.println();
@@ -77,6 +84,7 @@ namespace tictactino {
       case NOOP:
         break;
     }
+    refresh();
   }
   
   Command read(Player p)
@@ -108,7 +116,6 @@ namespace tictactino {
   void move(Player p)
   {
     uint16_t mask = (playground[GREEN] | playground[RED]);
-    //int recounter = 0;
     switch (p) {
       case GREEN:
         do {
@@ -125,11 +132,14 @@ namespace tictactino {
         break;
     }
     blinkmask = cursor;
-    refresh();
+    blinktimer = 0;
   }
   
   void refresh()
   {
+    uint32_t mask = 0;
+    byte data = 0;
+    /*
     #ifdef _DEBUG
     for (int i = 0; i < 9; ++i) {
       if (i % 3 == 0) {
@@ -143,6 +153,45 @@ namespace tictactino {
     }
     Serial.println(); Serial.println();
     #endif
+    */
+    // Blinkzustand ermitteln und register anpassen
+    if (blinktimer <= millis()) {
+      // register mit Spielstand und Zähler befüllen
+      reg = ((uint32_t) counter << 18) | ((uint32_t) playground[RED] << 9) | ((uint32_t) playground[GREEN]);
+      switch (status) {
+        case RUNNING:
+          mask = (uint32_t) blinkmask << (9 * (counter & 1));
+          break;
+        case EQUAL:
+          mask = reg;
+          break;
+        case WIN_RED:
+          mask = (uint32_t) blinkmask << 9;
+          break;
+        case WIN_GREEN:
+          mask = (uint32_t) blinkmask;
+          break;
+      }
+      Serial.print("Mask: "); Serial.println(mask, BIN);
+      if (blinktoggle == true) {
+          reg |= mask;
+          blinktoggle = false;
+        }
+        else {
+          reg &= ~mask;
+          blinktoggle = true;
+        }
+      
+      // Registerinhalt in Matrix schreiben
+      digitalWrite(lPin, LOW);
+      for (int i = 2; i >= 0; --i) {
+        data = (byte) ((reg >> (i * 8)) & 255);
+        shiftOut(dPin, cPin, MSBFIRST, data);
+      }
+      digitalWrite(lPin, HIGH);
+      blinktimer = millis() + blinkfreq;  
+    }
+    
   }
   
   void set(Player p)
@@ -189,7 +238,7 @@ namespace tictactino {
       }
       else status = EQUAL;
     }
-    refresh();
+    blinktimer = 0;
   }
   
   
@@ -201,7 +250,7 @@ namespace tictactino {
     #endif
     cursor = 0;
     blinkmask = winpattern;
-    refresh();
+    //refresh();
     #ifdef _DEBUG
     switch (status) {
       case WIN_RED:
@@ -220,6 +269,7 @@ namespace tictactino {
     Serial.println("Beliebe Taste druecken, um neues Spiel zu starten ...");
     #endif
     do {
+        refresh();
         if (lastinput == LOW && (digitalRead(inputPins[GREEN]) == HIGH || digitalRead(inputPins[RED]) == HIGH))
           lastinput = HIGH;
         else if (lastinput == HIGH && digitalRead(inputPins[GREEN]) == LOW && digitalRead(inputPins[RED]) == LOW) {
