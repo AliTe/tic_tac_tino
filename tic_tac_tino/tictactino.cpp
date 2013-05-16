@@ -259,7 +259,6 @@ namespace tictactino {
     }
     if (winpattern == 0 && counter >= 8) { // kein weiterer Zug mehr moeglich und keine Gewinnsituation -> unentschieden
       if (counter == 8) {
-        //playground[p] |= cursor;
         set(p);
         blinkmask = 0;
         cursor = 0;
