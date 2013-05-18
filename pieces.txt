@@ -1,0 +1,11 @@
+Pieces
+======
+
+Arduino Uno						1
+Resistor ~ 150 Ohm				18
+Resistor ~ 10 kOhm				2
+LED bicolor, common Cathode		9
+M74HC595 (8 bit shift register)	3
+Breadboard						1..2
+Push button						2
+wire
