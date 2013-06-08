@@ -3,36 +3,39 @@
 namespace tictactino {
   enum Player { GREEN, RED };
   enum Status { UNDEF, RESET, RUNNING, WIN_GREEN, WIN_RED, EQUAL, DEMO };
-  enum Command { NOOP, MOVE, SET };
-  const uint16_t winmask[8] = { 7, 56, 73, 84, 146, 273, 292, 448 };
+  enum Command { NOOP, MOVE, SET, ABORT };
+  const uint16_t winmask[8] = { 
+    7, 56, 73, 84, 146, 273, 292, 448   };
   int inputPins[2], dPin, cPin, lPin, lastinput;
   uint8_t counter = 0;
   uint16_t playground[2], blinkmask, cursor, winpattern;
   uint32_t reg;
-  unsigned long inputtimer, blinktimer;
+  unsigned long inputtimer, blinktimer, resettimer;
   volatile Status status = UNDEF;
   boolean blinktoggle;
   boolean playertoggle;
   void reset();
   void refresh();
+  void registerWrite();
   void turn(Player p);
   Command read(Player p);
   void move(Player p);
   void set(Player p);
   Player player();
-  
+
   /*
     *
-    * Board initialisieren
-    * greenPin, redPin - digitale Eingaenge, an denen die Taster haengen
-    * dataPin, clockPin, latchPin - digit. Ausgaenge, die drei 8 Bit Shift
-    *                               Register steuern (74HC595)
-  */
+   * Board initialisieren
+   * greenPin, redPin - digitale Eingaenge, an denen die Taster haengen
+   * dataPin, clockPin, latchPin - digit. Ausgaenge, die drei 8 Bit Shift
+   *                               Register steuern (74HC595)
+   */
   void init(int greenPin, int redPin, int dataPin, int clockPin, int latchPin)
   {
     inputPins[GREEN] = greenPin;
     inputPins[RED] = redPin;
     playertoggle = true;
+    lastinput = LOW;
     dPin = dataPin;
     cPin = clockPin;
     lPin = latchPin;
@@ -42,14 +45,24 @@ namespace tictactino {
     pinMode(inputPins[GREEN], INPUT);
     pinMode(inputPins[RED], INPUT);
   }
-  
+
   /*
     *
-    * Board fuer neues Spiel vorbereiten
-    *
-  */
+   * Board fuer neues Spiel vorbereiten
+   *
+   */
   void reset()
   { 
+    // visuelle Anzeige eines RESETs
+    while (lastinput == HIGH) {
+      reg = 511;
+      registerWrite();
+      delay(100);
+      reg <<= 9;
+      registerWrite(); 
+      delay(100);
+      lastinput = digitalRead(inputPins[player()]);
+    }
     // blinkmask - Bitmaske fuer blinkende Darstellung
     blinkmask = 1;
     // Bitmuster, das zum Sieg gefuehrt hat (nach Spielende gesetzt)
@@ -62,6 +75,7 @@ namespace tictactino {
     // Timer-Variablen, die Tasteneingabe und Matrix-Anzeige (blinken) steuern
     inputtimer = 0;
     blinktimer = 0;
+    resettimer = 0;
     // Spielzugzaehler
     counter = 0;
     // Register - 24 (!!!) Bit Wort, das in die Shiftregister geschrieben wird
@@ -77,12 +91,12 @@ namespace tictactino {
     // Spielstatus
     status = RESET;
   }
-  
+
   /*
     *
-    * Gibt den aktuellen Spieler zurück
-    *
-  */
+   * Gibt den aktuellen Spieler zurück
+   *
+   */
   Player player()
   {
     if (playertoggle == false) {
@@ -97,9 +111,9 @@ namespace tictactino {
 
   /*
     *
-    * Spielen
-    *
-  */
+   * Spielen
+   *
+   */
   void play()
   {
     reset();
@@ -109,37 +123,43 @@ namespace tictactino {
       // enter game main loop
       turn(player());
     }
+    //if (status == RESET) reset();
   }
-  
+
   /*
     *
-    * Eingabe-Schleife - Wechselnde Abfrage der Spielerzuege
-    * bis unentschieden oder Sieg erreicht ist
-    *
-  */
+   * Eingabe-Schleife - Wechselnde Abfrage der Spielerzuege
+   * bis unentschieden oder Sieg erreicht ist
+   *
+   */
   void turn(Player p)
   {
     switch (read(p)) {
-      case MOVE:
-        move(p);
-        break;
-        
-      case SET:
-        set(p);
-        break;
-        
-      case NOOP:
-        break;
+    case MOVE:
+      move(p);
+      break;
+
+    case SET:
+      set(p);
+      break;
+
+    case ABORT:
+      status = RESET;
+      return;
+      break;
+
+    case NOOP:
+      break;
     }
     refresh();
   }
-  
+
   /*
     *
-    * Einlesen der Taster-Eingabe - kurzer Tastendruck bewegt Cursor (blinkende LED)
-    *                               langer Tastendruck setzt Spielzug
-    *
-  */
+   * Einlesen der Taster-Eingabe - kurzer Tastendruck bewegt Cursor (blinkende LED)
+   *                               langer Tastendruck setzt Spielzug
+   *
+   */
   Command read(Player p)
   {
     Command cmd = NOOP;
@@ -148,11 +168,16 @@ namespace tictactino {
       // Tastendruck entdeckt
       if (input == HIGH) {
         lastinput = HIGH;
-        inputtimer = millis() + 1000; // Timer starten
+        inputtimer = millis() + 1000; // Input-Timer starten
+        resettimer = inputtimer + 3000; // Reset-Timer starten
       }
       // nichts passiert
     }
-    else if (input == LOW && inputtimer <= millis()) { // Taster war gedrueckt worden
+    else if (resettimer <= millis()) { // Taster war gedrueckt worden
+      // nach sehr langem Druck losgelassen -> Spieler gibt auf -> Reset
+      cmd = ABORT;
+    }
+    else if (input == LOW && inputtimer <= millis()) {
       // nach langem Druck losgelassen -> Zug setzen
       cmd = SET;
       lastinput = LOW;
@@ -165,87 +190,97 @@ namespace tictactino {
     delay(50); // Taster entprellen
     return cmd;
   }
-  
+
   /*
     *
-    * Cursor auf naechste moegliche Position setzen
-    *
-  */
+   * Cursor auf naechste moegliche Position setzen
+   *
+   */
   void move(Player p)
   {
     uint16_t mask = (playground[GREEN] | playground[RED]);
     switch (p) {
-      case GREEN:
-        do {
-          cursor <<= 1;
-          if (cursor > 256) cursor = 1;
-        } while ((mask & cursor) != 0);
-        break;
-        
-      case RED:
-        do {
-          cursor >>= 1;
-          if (cursor <= 0) cursor = 256;
-        } while ((mask & cursor) != 0);
-        break;
+    case GREEN:
+      do {
+        cursor <<= 1;
+        if (cursor > 256) cursor = 1;
+      } while ((mask & cursor) != 0);
+      break;
+
+    case RED:
+      do {
+        cursor >>= 1;
+        if (cursor <= 0) cursor = 256;
+      } while ((mask & cursor) != 0);
+      break;
     }
     blinkmask = cursor;
     blinktimer = 0;
   }
-  
+
   /*
     *
-    * LED-Matrix auffrischen
-    *
-  */
+   * LED-Matrix auffrischen
+   *
+   */
   void refresh()
   {
     uint32_t mask = 0;
-    byte data = 0;
     if (blinktimer <= millis()) { // Blink-Timer abgelaufen -> Matrix neu schreiben
       // Registervariable mit Spielstand und Zähler befüllen
       reg = ((uint32_t) counter << 18) | ((uint32_t) playground[RED] << 9) | ((uint32_t) playground[GREEN]);
       switch (status) {
-        case RUNNING:
-          mask = (uint32_t) blinkmask << (9 * player()); // Waehrend des Spiels Cursor anzeigen
-          break;
-        case EQUAL:
-          mask = reg; // Bei unentschieden alle Felder blinken lassen
-          break;
-        case WIN_RED:
-          mask = (uint32_t) blinkmask << 9; // Sieg rot - rote Gewinnreihe blinken lassen
-          break;
-        case WIN_GREEN:
-          mask = (uint32_t) blinkmask; // Sieg gruen - gruene Gewinnreihe blinken lassen
-          break;
+      case RUNNING:
+        mask = (uint32_t) blinkmask << (9 * player()); // Waehrend des Spiels Cursor anzeigen
+        break;
+      case EQUAL:
+        mask = reg; // Bei unentschieden alle Felder blinken lassen
+        break;
+      case WIN_RED:
+        mask = (uint32_t) blinkmask << 9; // Sieg rot - rote Gewinnreihe blinken lassen
+        break;
+      case WIN_GREEN:
+        mask = (uint32_t) blinkmask; // Sieg gruen - gruene Gewinnreihe blinken lassen
+        break;
       }
       // blinkende LEDs ein- bzw. ausschalten
-      if (blinktoggle == true) {
-          reg |= mask;
-          blinktoggle = false;
-        }
-        else {
-          reg &= ~mask;
-          blinktoggle = true;
-        }
-      
-      // Registerinhalt in Matrix schreiben
-      digitalWrite(lPin, LOW);
-      for (int i = 2; i >= 0; --i) {
-        data = (byte) ((reg >> (i * 8)) & 255);
-        shiftOut(dPin, cPin, MSBFIRST, data);
+      if (blinktoggle == false) {
+        reg |= mask;
+        blinktoggle = true;
       }
-      digitalWrite(lPin, HIGH);
+      else {
+        reg &= ~mask;
+        blinktoggle = false;
+      }
+
+      registerWrite();
       blinktimer = millis() + blinkfreq;  
     }
-    
+
   }
   
   /*
     *
-    * Spielzug setzen und Spielsituation ueberpruefen
+    * Schieberegister beschreiben
     *
   */
+  void registerWrite()
+  {
+    // Registerinhalt in Matrix schreiben
+    byte data = 0;
+    digitalWrite(lPin, LOW);
+    for (int i = 2; i >= 0; --i) {
+      data = (byte) ((reg >> (i * 8)) & 255);
+      shiftOut(dPin, cPin, MSBFIRST, data);
+    }
+    digitalWrite(lPin, HIGH);
+  }
+
+  /*
+    *
+   * Spielzug setzen und Spielsituation ueberpruefen
+   *
+   */
   void set(Player p)
   {
     playground[p] |= cursor;
@@ -281,26 +316,28 @@ namespace tictactino {
     }
     blinktimer = 0;
   }
-  
+
   /*
     *
-    * Anzeige des Spieausgangs nach Spielende
-    * Warten auf (beliebigen) Tastendruck, um neues Spiel zu starten
-    *
-  */
+   * Anzeige des Spieausgangs nach Spielende
+   * Warten auf (beliebigen) Tastendruck, um neues Spiel zu starten
+   *
+   */
   void show()
   {
+    if (status == RESET) return;
     cursor = 0;
     blinkmask = winpattern;
     do {
-        refresh();
-        if (lastinput == LOW && (digitalRead(inputPins[GREEN]) == HIGH || digitalRead(inputPins[RED]) == HIGH))
-          lastinput = HIGH;
-        else if (lastinput == HIGH && digitalRead(inputPins[GREEN]) == LOW && digitalRead(inputPins[RED]) == LOW) {
-          lastinput = LOW;
-          status = RESET;
-        }
-        delay(50);
+      refresh();
+      if (lastinput == LOW && (digitalRead(inputPins[GREEN]) == HIGH || digitalRead(inputPins[RED]) == HIGH))
+        lastinput = HIGH;
+      else if (lastinput == HIGH && digitalRead(inputPins[GREEN]) == LOW && digitalRead(inputPins[RED]) == LOW) {
+        lastinput = LOW;
+        status = RESET;
+      }
+      delay(50);
     } while (status != RESET);
   }
 };
+
