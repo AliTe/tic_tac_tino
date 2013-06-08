@@ -12,6 +12,7 @@ namespace tictactino {
   unsigned long inputtimer, blinktimer;
   volatile Status status = UNDEF;
   boolean blinktoggle;
+  boolean playertoggle;
   void reset();
   void refresh();
   void turn(Player p);
@@ -31,6 +32,7 @@ namespace tictactino {
   {
     inputPins[GREEN] = greenPin;
     inputPins[RED] = redPin;
+    playertoggle = true;
     dPin = dataPin;
     cPin = clockPin;
     lPin = latchPin;
@@ -50,7 +52,6 @@ namespace tictactino {
   { 
     // blinkmask - Bitmaske fuer blinkende Darstellung
     blinkmask = 1;
-    cursor = 1;
     // Bitmuster, das zum Sieg gefuehrt hat (nach Spielende gesetzt)
     winpattern = 0;
     lastinput = LOW;
@@ -67,6 +68,12 @@ namespace tictactino {
     // 2 Bit frei; 4 Bit Zugzaehler; 9 Bit Spielfeld rot; 9 Bit Spielfeld gruen
     reg = 0;
     blinktimer = millis() + blinkfreq;
+    // Spieler togglen
+    playertoggle = !playertoggle;
+    // Cursor setzen
+    if (player() == GREEN) cursor = 256;
+    else cursor = 0;
+    move(player());
     // Spielstatus
     status = RESET;
   }
@@ -78,8 +85,14 @@ namespace tictactino {
   */
   Player player()
   {
-    if ((counter & 1) == 0) return GREEN;
-    else return RED;
+    if (playertoggle == false) {
+      if ((counter & 1) == 0) return GREEN;
+      else return RED;
+    }
+    else {
+      if ((counter & 1) == 0) return RED;
+      else return GREEN;
+    }
   }
 
   /*
@@ -194,7 +207,7 @@ namespace tictactino {
       reg = ((uint32_t) counter << 18) | ((uint32_t) playground[RED] << 9) | ((uint32_t) playground[GREEN]);
       switch (status) {
         case RUNNING:
-          mask = (uint32_t) blinkmask << (9 * (counter & 1)); // Waehrend des Spiels Cursor anzeigen
+          mask = (uint32_t) blinkmask << (9 * player()); // Waehrend des Spiels Cursor anzeigen
           break;
         case EQUAL:
           mask = reg; // Bei unentschieden alle Felder blinken lassen
