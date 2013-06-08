@@ -1,6 +1,7 @@
 #include "tictactino.h"
 
 namespace tictactino {
+  int blinkfreq = 250; // blinking frequency in ms - should be ~ >150
   enum Player { GREEN, RED };
   enum Status { UNDEF, RESET, RUNNING, WIN_GREEN, WIN_RED, EQUAL, DEMO };
   enum Command { NOOP, MOVE, SET, ABORT };
@@ -24,7 +25,7 @@ namespace tictactino {
   Player player();
 
   /*
-    *
+   *
    * Board initialisieren
    * greenPin, redPin - digitale Eingaenge, an denen die Taster haengen
    * dataPin, clockPin, latchPin - digit. Ausgaenge, die drei 8 Bit Shift
@@ -47,7 +48,7 @@ namespace tictactino {
   }
 
   /*
-    *
+   *
    * Board fuer neues Spiel vorbereiten
    *
    */
@@ -93,7 +94,7 @@ namespace tictactino {
   }
 
   /*
-    *
+   *
    * Gibt den aktuellen Spieler zurück
    *
    */
@@ -110,7 +111,7 @@ namespace tictactino {
   }
 
   /*
-    *
+   *
    * Spielen
    *
    */
@@ -127,7 +128,7 @@ namespace tictactino {
   }
 
   /*
-    *
+   *
    * Eingabe-Schleife - Wechselnde Abfrage der Spielerzuege
    * bis unentschieden oder Sieg erreicht ist
    *
@@ -155,7 +156,7 @@ namespace tictactino {
   }
 
   /*
-    *
+   *
    * Einlesen der Taster-Eingabe - kurzer Tastendruck bewegt Cursor (blinkende LED)
    *                               langer Tastendruck setzt Spielzug
    *
@@ -176,23 +177,30 @@ namespace tictactino {
     else if (resettimer <= millis()) { // Taster war gedrueckt worden
       // nach sehr langem Druck losgelassen -> Spieler gibt auf -> Reset
       cmd = ABORT;
+      blinkfreq = 250;
+    }
+    else if (input == HIGH && inputtimer <= millis()) {
+      // Inputtimer abgelaufen, Taste noch gedrueckt -> schneller blinken
+      blinkfreq = 80;
     }
     else if (input == LOW && inputtimer <= millis()) {
       // nach langem Druck losgelassen -> Zug setzen
       cmd = SET;
       lastinput = LOW;
+      blinkfreq = 250;
     }
     else if (input == LOW && inputtimer > millis()) {
       // nach kurzem Druck losgelassen - Cursor weiterbewegen
       cmd = MOVE;
       lastinput = LOW;
+      blinkfreq = 250;
     }
     delay(50); // Taster entprellen
     return cmd;
   }
 
   /*
-    *
+   *
    * Cursor auf naechste moegliche Position setzen
    *
    */
@@ -219,7 +227,7 @@ namespace tictactino {
   }
 
   /*
-    *
+   *
    * LED-Matrix auffrischen
    *
    */
@@ -260,10 +268,10 @@ namespace tictactino {
   }
   
   /*
-    *
-    * Schieberegister beschreiben
-    *
-  */
+   *
+   * Schieberegister beschreiben
+   *
+   */
   void registerWrite()
   {
     // Registerinhalt in Matrix schreiben
@@ -277,7 +285,7 @@ namespace tictactino {
   }
 
   /*
-    *
+   *
    * Spielzug setzen und Spielsituation ueberpruefen
    *
    */
@@ -318,14 +326,14 @@ namespace tictactino {
   }
 
   /*
-    *
+   *
    * Anzeige des Spieausgangs nach Spielende
    * Warten auf (beliebigen) Tastendruck, um neues Spiel zu starten
    *
    */
   void show()
   {
-    if (status == RESET) return;
+    if (status == RESET) return; // RESET wurde vor Spielende aufgerufen-> nichts anzeigen
     cursor = 0;
     blinkmask = winpattern;
     do {
