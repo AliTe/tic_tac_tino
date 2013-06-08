@@ -2,16 +2,18 @@
 
 namespace tictactino {
   int blinkfreq = 250; // blinking frequency in ms - should be ~ >150
+  int idletime = 10000; // !!!!
   enum Player { GREEN, RED };
   enum Status { UNDEF, RESET, RUNNING, WIN_GREEN, WIN_RED, EQUAL, DEMO };
-  enum Command { NOOP, MOVE, SET, ABORT };
+  enum Command { NOOP, MOVE, SET, ABORT, IDLELOOP };
   const uint16_t winmask[8] = { 
     7, 56, 73, 84, 146, 273, 292, 448   };
   int inputPins[2], dPin, cPin, lPin, lastinput;
   uint8_t counter = 0;
   uint16_t playground[2], blinkmask, cursor, winpattern;
+  uint16_t demoground[2];
   uint32_t reg;
-  unsigned long inputtimer, blinktimer, resettimer;
+  unsigned long inputtimer, blinktimer, resettimer, idletimer;
   volatile Status status = UNDEF;
   boolean blinktoggle;
   boolean playertoggle;
@@ -22,6 +24,8 @@ namespace tictactino {
   Command read(Player p);
   void move(Player p);
   void set(Player p);
+  void demoloop();
+  void (*demo)();
   Player player();
 
   /*
@@ -75,20 +79,20 @@ namespace tictactino {
     playground[RED] = 0;
     // Timer-Variablen, die Tasteneingabe und Matrix-Anzeige (blinken) steuern
     inputtimer = 0;
-    blinktimer = 0;
     resettimer = 0;
     // Spielzugzaehler
     counter = 0;
     // Register - 24 (!!!) Bit Wort, das in die Shiftregister geschrieben wird
     // 2 Bit frei; 4 Bit Zugzaehler; 9 Bit Spielfeld rot; 9 Bit Spielfeld gruen
     reg = 0;
-    blinktimer = millis() + blinkfreq;
     // Spieler togglen
     playertoggle = !playertoggle;
     // Cursor setzen
     if (player() == GREEN) cursor = 256;
     else cursor = 0;
     move(player());
+    blinktimer = millis() + blinkfreq;
+    idletimer = millis() + idletime;
     // Spielstatus
     status = RESET;
   }
@@ -120,11 +124,11 @@ namespace tictactino {
     reset();
     refresh();
     status = RUNNING;
-    while (status == RUNNING) {
+    while (status == RUNNING || status == DEMO) {
       // enter game main loop
       turn(player());
+      if (status == DEMO) demoloop();
     }
-    //if (status == RESET) reset();
   }
 
   /*
@@ -136,12 +140,19 @@ namespace tictactino {
   void turn(Player p)
   {
     switch (read(p)) {
+    case IDLELOOP:
+      status = DEMO;
+      return;
+      break;
+      
     case MOVE:
       move(p);
+      idletimer = millis() + idletime;
       break;
 
     case SET:
       set(p);
+      idletimer = millis() + idletime;
       break;
 
     case ABORT:
@@ -165,7 +176,10 @@ namespace tictactino {
   {
     Command cmd = NOOP;
     int input = digitalRead(inputPins[p]);
-    if (lastinput == LOW) { // Taster war nicht gedrückt
+    if (idletimer <= millis()) {
+      return IDLELOOP;
+    }
+    else if (lastinput == LOW) { // Taster war nicht gedrückt
       // Tastendruck entdeckt
       if (input == HIGH) {
         lastinput = HIGH;
@@ -269,6 +283,33 @@ namespace tictactino {
   
   /*
    *
+   * DEMO-Loop
+   * Schleife, inder die demo() funktion aufgerufen wird, bis Tastendruck erfolgt
+   * 
+   */
+  void demoloop()
+  {
+    // TEST
+    reg = 0;
+    registerWrite();
+    // TEST
+    
+    while (status == DEMO) {
+      if (lastinput == LOW && (digitalRead(inputPins[GREEN]) == HIGH || digitalRead(inputPins[RED]) == HIGH))
+        lastinput = HIGH;
+      else if (lastinput == HIGH && digitalRead(inputPins[GREEN]) == LOW && digitalRead(inputPins[RED]) == LOW) {
+        lastinput = LOW;
+        inputtimer = millis() + 1000;
+        resettimer = inputtimer + 3000;
+        idletimer = inputtimer + idletime - 1000;
+        status = RUNNING;
+      }
+      delay(50);
+    }
+  }  
+  
+  /*
+   *
    * Schieberegister beschreiben
    *
    */
@@ -333,7 +374,9 @@ namespace tictactino {
    */
   void show()
   {
-    if (status == RESET) return; // RESET wurde vor Spielende aufgerufen-> nichts anzeigen
+    if (status == RESET) { // RESET wurde vor Spielende aufgerufen-> nichts anzeigen
+      return;
+    }
     cursor = 0;
     blinkmask = winpattern;
     do {
