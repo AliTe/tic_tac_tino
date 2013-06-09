@@ -2,7 +2,7 @@
 
 namespace tictactino {
   int blinkfreq = 250; // blinking frequency in ms - should be ~ >150
-  int idletime = 10000; // !!!!
+  unsigned long idletime;
   enum Player { GREEN, RED };
   enum Status { UNDEF, RESET, RUNNING, WIN_GREEN, WIN_RED, EQUAL, DEMO };
   enum Command { NOOP, MOVE, SET, ABORT, IDLELOOP };
@@ -26,7 +26,6 @@ namespace tictactino {
   void set(Player p);
   void demoloop();
   void defaultdemo(uint32_t &data);
-//  uint32_t defaultdata = 1;
   void (*demofunction)(uint32_t &data) = defaultdemo;
   uint32_t demodata = 1;
   Player player();
@@ -38,7 +37,7 @@ namespace tictactino {
    * dataPin, clockPin, latchPin - digit. Ausgaenge, die drei 8 Bit Shift
    *                               Register steuern (74HC595)
    */
-  void init(int greenPin, int redPin, int dataPin, int clockPin, int latchPin)
+  void init(int greenPin, int redPin, int dataPin, int clockPin, int latchPin, unsigned long idleTime)
   {
     inputPins[GREEN] = greenPin;
     inputPins[RED] = redPin;
@@ -47,6 +46,7 @@ namespace tictactino {
     dPin = dataPin;
     cPin = clockPin;
     lPin = latchPin;
+    idletime = idleTime;
     pinMode(lPin, OUTPUT);
     pinMode(dPin, OUTPUT);
     pinMode(cPin, OUTPUT);
@@ -101,12 +101,13 @@ namespace tictactino {
     // Register - 24 (!!!) Bit Wort, das in die Shiftregister geschrieben wird
     // 2 Bit frei; 4 Bit Zugzaehler; 9 Bit Spielfeld rot; 9 Bit Spielfeld gruen
     reg = 0;
-    // Spieler togglen
+    // Spieler wechseln
     playertoggle = !playertoggle;
     // Cursor setzen
     if (player() == GREEN) cursor = 256;
     else cursor = 0;
     move(player());
+    // Timer starten
     blinktimer = millis() + blinkfreq;
     idletimer = millis() + idletime;
     // Spielstatus
@@ -185,7 +186,8 @@ namespace tictactino {
   /*
    *
    * Einlesen der Taster-Eingabe - kurzer Tastendruck bewegt Cursor (blinkende LED)
-   *                               langer Tastendruck setzt Spielzug
+   *                               langer Tastendruck (~1 sec.) setzt Spielzug
+   *                               sehr langer Tastendruck (~4 sec.) fuehrt RESET aus
    *
    */
   Command read(Player p)
@@ -300,18 +302,19 @@ namespace tictactino {
   /*
    *
    * DEMO-Loop
-   * Schleife, inder die demo() funktion aufgerufen wird, bis Tastendruck erfolgt
+   * Schleife, in der die ueber demo() uebergebene 
+   * benutzerdefinierte Funktion aufgerufen wird, bis Tastendruck erfolgt
    * 
-   * Auf die benutzerdefinierte Demo-Funktion kann über (*demo)(uint32_t&) Zugegriffen werden,
+   * Auf die benutzerdefinierte Demo-Funktion kann über demofunction Zugegriffen werden,
    * die anzuzeigenden Bitmasken liegen unter *demodata
+   * Dabei sind die Bits 0..8 die gruene und Bits 9..17 die rote LED-Matrix; restliche Bits -> 0
    * 
    */
   void demoloop()
   {
-    //if (&demofunction == 0) demo(defaultdemo, demodata);
     while (status == DEMO) {
       demofunction(demodata);
-      reg = demodata & 262143; 
+      reg = demodata & 262143; // nur die Bits 0..17 sind relevant !!!
       registerWrite();
       if (lastinput == LOW && (digitalRead(inputPins[GREEN]) == HIGH || digitalRead(inputPins[RED]) == HIGH))
         lastinput = HIGH;
@@ -322,10 +325,16 @@ namespace tictactino {
         idletimer = inputtimer + idletime - 1000;
         status = RUNNING;
       }
-      delay(50);
+      delay(50); // benoetigt zum entprellen der Taster
     }
   }
   
+  /*
+   *
+   * Default-Demo-Funktion - wird benutzt, wenn keine beutzerdefinierte
+   * Funktion uebergeben wurde
+   *
+  */
   void defaultdemo(uint32_t &data)
   {
     if (data <= 256) {
