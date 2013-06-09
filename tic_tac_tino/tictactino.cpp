@@ -25,7 +25,10 @@ namespace tictactino {
   void move(Player p);
   void set(Player p);
   void demoloop();
-  void (*demo)();
+  void defaultdemo(uint32_t &data);
+//  uint32_t defaultdata = 1;
+  void (*demofunction)(uint32_t &data) = defaultdemo;
+  uint32_t demodata = 1;
   Player player();
 
   /*
@@ -49,6 +52,19 @@ namespace tictactino {
     pinMode(cPin, OUTPUT);
     pinMode(inputPins[GREEN], INPUT);
     pinMode(inputPins[RED], INPUT);
+  }
+
+  /*
+   * Benutzerdefinierte Demo-Funktion
+   * Argumente Funktionspointer, Datenpointer (32 bit Integer als Bitmaske
+   *                                           Bits 0-8 -> gruenes Feld
+   *                                           Bits 9-17 -> rotes Feld
+   *  
+   */
+  void demo(void (*demo_function)(uint32_t &userdata), uint32_t &data)
+  {
+    demofunction = demo_function;
+    demodata = data;
   }
 
   /*
@@ -286,15 +302,17 @@ namespace tictactino {
    * DEMO-Loop
    * Schleife, inder die demo() funktion aufgerufen wird, bis Tastendruck erfolgt
    * 
+   * Auf die benutzerdefinierte Demo-Funktion kann über (*demo)(uint32_t&) Zugegriffen werden,
+   * die anzuzeigenden Bitmasken liegen unter *demodata
+   * 
    */
   void demoloop()
   {
-    // TEST
-    reg = 0;
-    registerWrite();
-    // TEST
-    
+    //if (&demofunction == 0) demo(defaultdemo, demodata);
     while (status == DEMO) {
+      demofunction(demodata);
+      reg = demodata & 262143; 
+      registerWrite();
       if (lastinput == LOW && (digitalRead(inputPins[GREEN]) == HIGH || digitalRead(inputPins[RED]) == HIGH))
         lastinput = HIGH;
       else if (lastinput == HIGH && digitalRead(inputPins[GREEN]) == LOW && digitalRead(inputPins[RED]) == LOW) {
@@ -306,7 +324,23 @@ namespace tictactino {
       }
       delay(50);
     }
-  }  
+  }
+  
+  void defaultdemo(uint32_t &data)
+  {
+    if (data <= 256) {
+      // gruen
+      data <<= 1;
+      if (data > 256) data = 131072;
+    }
+    else {
+      // rot
+      data >>= 1;
+      if (data <= 256) data = 1;
+    }
+    delay(25);
+  }
+
   
   /*
    *
@@ -368,7 +402,7 @@ namespace tictactino {
 
   /*
    *
-   * Anzeige des Spieausgangs nach Spielende
+   * Anzeige des Spielausgangs nach Spielende
    * Warten auf (beliebigen) Tastendruck, um neues Spiel zu starten
    *
    */
